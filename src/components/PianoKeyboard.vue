@@ -25,7 +25,8 @@ const CODE_MAP: Record<string, string> = {
   'KeyA': 'C',  'KeyW': 'C#', 'KeyS': 'D',  'KeyE': 'D#', 'KeyD': 'E',
   'KeyF': 'F',  'KeyT': 'F#', 'KeyG': 'G',  'KeyY': 'G#', 'KeyH': 'A',
   'KeyU': 'A#', 'KeyJ': 'B',  'KeyK': 'C+', 'KeyO': 'C#+','KeyL': 'D+',
-  'KeyP': 'D#+','Semicolon': 'E+', 'Quote': 'F+',
+  'KeyP': 'D#+','Semicolon': 'E+', 'BracketLeft': 'F#+', 'Quote': 'F+',
+  'BracketRight': 'G#+', 'Backslash': 'G+',
 }
 
 type LayoutFamily = 'qwerty' | 'azerty' | 'qwertz' | 'unknown'
@@ -154,25 +155,29 @@ const LAYOUT_FALLBACKS: Record<LayoutFamily, Record<string, string>> = {
     'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
     'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y', 'KeyH': 'H',
     'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
-    'KeyP': 'P', 'Semicolon': ';', 'Quote': "'",
+    'KeyP': 'P', 'Semicolon': ';', 'BracketLeft': '[', 'Quote': "'",
+    'BracketRight': ']', 'Backslash': '\\',
   },
   azerty: {
     'KeyA': 'Q', 'KeyW': 'Z', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
     'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y', 'KeyH': 'H',
     'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
-    'KeyP': 'P', 'Semicolon': 'M', 'Quote': 'Ù',
+    'KeyP': 'P', 'Semicolon': 'M', 'BracketLeft': '^', 'Quote': 'Ù',
+    'BracketRight': '$', 'Backslash': '*',
   },
   qwertz: {
     'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
     'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Z', 'KeyH': 'H',
     'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
-    'KeyP': 'P', 'Semicolon': 'Ö', 'Quote': 'Ä',
+    'KeyP': 'P', 'Semicolon': 'Ö', 'BracketLeft': 'Ü', 'Quote': 'Ä',
+    'BracketRight': '!', 'Backslash': '$',
   },
   unknown: {
     'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
     'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y/Z', 'KeyH': 'H',
     'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
-    'KeyP': 'P', 'Semicolon': ';/Ö', 'Quote': "'/Ä",
+    'KeyP': 'P', 'Semicolon': ';/Ö', 'BracketLeft': '[/Ü', 'Quote': "'/Ä",
+    'BracketRight': ']/!', 'Backslash': '\\/$',
   },
 }
 
