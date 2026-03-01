@@ -20,6 +20,7 @@ const { NOTES, NOTE_NAMES_FR, parseNote } = useMusicTheory()
 const highlights = ref<Record<string, Set<string>>>({})
 
 // ---- Keyboard layout detection ----
+// Uses event.code (physical position) — works on ANY layout (QWERTY, AZERTY, QWERTZ, etc.)
 const CODE_MAP: Record<string, string> = {
   'KeyA': 'C',  'KeyW': 'C#', 'KeyS': 'D',  'KeyE': 'D#', 'KeyD': 'E',
   'KeyF': 'F',  'KeyT': 'F#', 'KeyG': 'G',  'KeyY': 'G#', 'KeyH': 'A',
@@ -27,6 +28,8 @@ const CODE_MAP: Record<string, string> = {
   'KeyP': 'D#+','Semicolon': 'E+', 'Quote': 'F+',
 }
 
+type LayoutFamily = 'qwerty' | 'azerty' | 'qwertz' | 'unknown'
+const detectedLayout = ref<LayoutFamily>('unknown')
 const detectedKeyLabels = ref<Record<string, string>>({})
 const pressedKeys = new Set<string>()
 const numOctaves = 2
@@ -125,6 +128,46 @@ function blackKeyLeft(whiteIdx: number): string {
 }
 
 // ---- Physical keyboard ----
+const LAYOUT_FALLBACKS: Record<LayoutFamily, Record<string, string>> = {
+  qwerty: {
+    'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
+    'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y', 'KeyH': 'H',
+    'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
+    'KeyP': 'P', 'Semicolon': ';', 'Quote': "'",
+  },
+  azerty: {
+    'KeyA': 'Q', 'KeyW': 'Z', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
+    'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y', 'KeyH': 'H',
+    'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
+    'KeyP': 'P', 'Semicolon': 'M', 'Quote': 'Ù',
+  },
+  qwertz: {
+    'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
+    'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Z', 'KeyH': 'H',
+    'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
+    'KeyP': 'P', 'Semicolon': 'Ö', 'Quote': 'Ä',
+  },
+  unknown: {
+    'KeyA': 'A', 'KeyW': 'W', 'KeyS': 'S', 'KeyE': 'E', 'KeyD': 'D',
+    'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G', 'KeyY': 'Y/Z', 'KeyH': 'H',
+    'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K', 'KeyO': 'O', 'KeyL': 'L',
+    'KeyP': 'P', 'Semicolon': ';/Ö', 'Quote': "'/Ä",
+  },
+}
+
+function detectLayoutFamily(key: string, code: string): LayoutFamily | null {
+  if (code === 'KeyA' && key.toLowerCase() === 'q') return 'azerty'
+  if (code === 'KeyW' && key.toLowerCase() === 'z') return 'azerty'
+  if (code === 'KeyY' && key.toLowerCase() === 'z') return 'qwertz'
+  if (code === 'KeyZ' && key.toLowerCase() === 'y') return 'qwertz'
+  if (code === 'KeyA' && key.toLowerCase() === 'a') {
+    // Could be QWERTY or QWERTZ — need more data
+    return null
+  }
+  if (code === 'KeyY' && key.toLowerCase() === 'y') return 'qwerty'
+  return null
+}
+
 async function detectKeyboardLayout() {
   if ((navigator as any).keyboard && (navigator as any).keyboard.getLayoutMap) {
     try {
@@ -133,23 +176,43 @@ async function detectKeyboardLayout() {
         const key = layoutMap.get(code)
         if (key) detectedKeyLabels.value[code] = key.toUpperCase()
       }
+      // Detect family from layout map
+      const yKey = layoutMap.get('KeyY')
+      const aKey = layoutMap.get('KeyA')
+      if (yKey === 'z') detectedLayout.value = 'qwertz'
+      else if (aKey === 'q') detectedLayout.value = 'azerty'
+      else detectedLayout.value = 'qwerty'
       return
     } catch { /* fallback */ }
   }
-  detectedKeyLabels.value = {
-    'KeyA': 'A/Q', 'KeyW': 'W/Z', 'KeyS': 'S', 'KeyE': 'E',
-    'KeyD': 'D', 'KeyF': 'F', 'KeyT': 'T', 'KeyG': 'G',
-    'KeyY': 'Y/Z', 'KeyH': 'H', 'KeyU': 'U', 'KeyJ': 'J', 'KeyK': 'K',
-  }
+  // Apply fallback labels based on detected layout (or 'unknown')
+  detectedKeyLabels.value = { ...LAYOUT_FALLBACKS[detectedLayout.value] }
 }
 
 function handleKeyDown(e: KeyboardEvent) {
   if (e.repeat) return
   const code = e.code
+
+  // Auto-detect layout family on early key presses
+  if (detectedLayout.value === 'unknown' && e.key && e.key.length === 1) {
+    const family = detectLayoutFamily(e.key, code)
+    if (family) {
+      detectedLayout.value = family
+      // Apply full label set for detected layout
+      const fallback = LAYOUT_FALLBACKS[family]
+      for (const [c, label] of Object.entries(fallback)) {
+        if (!pressedKeys.has(c)) {
+          detectedKeyLabels.value[c] = label
+        }
+      }
+    }
+  }
+
   if (CODE_MAP[code] && !pressedKeys.has(code)) {
     e.preventDefault()
     pressedKeys.add(code)
 
+    // Always update label from actual keypress
     if (e.key && e.key.length === 1) {
       detectedKeyLabels.value[code] = e.key.toUpperCase()
     }
@@ -197,6 +260,13 @@ const blackKeyCodes = ['KeyW', 'KeyE', 'KeyT', 'KeyY', 'KeyU']
 
 function kbdLabel(code: string): string {
   return detectedKeyLabels.value[code] ?? code.replace('Key', '')
+}
+
+const layoutDisplayName: Record<LayoutFamily, string> = {
+  qwerty: 'QWERTY',
+  azerty: 'AZERTY',
+  qwertz: 'QWERTZ (CH/DE)',
+  unknown: 'auto-détection',
 }
 
 // Expose methods for parent
@@ -253,7 +323,10 @@ defineExpose({
         &nbsp;|&nbsp; ⬛ Noires:
         <kbd v-for="c in blackKeyCodes" :key="c">{{ kbdLabel(c) }}</kbd>
       </p>
-      <p class="hint-sub">Layout clavier détecté automatiquement</p>
+      <p class="hint-sub">
+        ⌨️ {{ layoutDisplayName[detectedLayout] }}
+        <span v-if="detectedLayout === 'unknown'"> — appuie sur une touche pour détecter</span>
+      </p>
     </div>
   </section>
 </template>
