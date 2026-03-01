@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { LessonDefinition } from '@/types'
 import { useAdaptive } from '@/composables/useAdaptive'
 
@@ -12,7 +13,8 @@ const emit = defineEmits<{
   selectLesson: [lesson: LessonDefinition]
 }>()
 
-const { getStats, isLessonUnlocked, isLessonCompleted, getSuccessRate } = useAdaptive()
+const adaptive = useAdaptive()
+const stats = computed(() => adaptive.getStats())
 
 function getCategoryIcon(cat: string): string {
   const map: Record<string, string> = {
@@ -35,19 +37,19 @@ function getCategoryIcon(cat: string): string {
       <!-- Daily stats -->
       <div class="daily-stats">
         <div class="daily-stat">
-          <span class="daily-value">{{ getStats().level }}</span>
+          <span class="daily-value">{{ stats.level }}</span>
           <span class="daily-label">Niveau</span>
         </div>
         <div class="daily-stat highlight">
-          <span class="daily-value">{{ getStats().streak }} 🔥</span>
+          <span class="daily-value">{{ stats.streak }} 🔥</span>
           <span class="daily-label">Série</span>
         </div>
         <div class="daily-stat">
-          <span class="daily-value">{{ getStats().totalXp }}</span>
+          <span class="daily-value">{{ stats.totalXp }}</span>
           <span class="daily-label">XP</span>
         </div>
         <div class="daily-stat">
-          <span class="daily-value">{{ getStats().lessonsCompleted }}</span>
+          <span class="daily-value">{{ stats.lessonsCompleted }}</span>
           <span class="daily-label">Leçons</span>
         </div>
       </div>
@@ -73,13 +75,13 @@ function getCategoryIcon(cat: string): string {
     <!-- XP Progress -->
     <div class="xp-bar-section">
       <div class="xp-bar-header">
-        <span>Niveau {{ getStats().level }}</span>
-        <span>{{ getStats().xp }} / {{ getStats().xp + getStats().xpToNextLevel }} XP</span>
+        <span>Niveau {{ stats.level }}</span>
+        <span>{{ stats.xp }} / {{ stats.xp + stats.xpToNextLevel }} XP</span>
       </div>
       <div class="xp-bar">
         <div
           class="xp-bar-fill"
-          :style="{ width: `${(getStats().xp / (getStats().xp + getStats().xpToNextLevel)) * 100}%` }"
+          :style="{ width: `${(stats.xp / (stats.xp + stats.xpToNextLevel)) * 100}%` }"
         />
       </div>
     </div>
@@ -93,20 +95,20 @@ function getCategoryIcon(cat: string): string {
           :key="lesson.id"
           class="lesson-card"
           :class="{
-            completed: isLessonCompleted(lesson.id),
-            locked: !isLessonUnlocked(lesson),
+            completed: adaptive.isLessonCompleted(lesson.id),
+            locked: !adaptive.isLessonUnlocked(lesson),
             recommended: lesson.id === recommendedLesson?.id,
           }"
-          @click="isLessonUnlocked(lesson) && emit('selectLesson', lesson)"
+          @click="adaptive.isLessonUnlocked(lesson) && emit('selectLesson', lesson)"
         >
           <div class="lesson-card-icon">
-            {{ isLessonCompleted(lesson.id) ? '✅' : !isLessonUnlocked(lesson) ? '🔒' : getCategoryIcon(lesson.category) }}
+            {{ adaptive.isLessonCompleted(lesson.id) ? '✅' : !adaptive.isLessonUnlocked(lesson) ? '🔒' : getCategoryIcon(lesson.category) }}
           </div>
           <div class="lesson-card-title">{{ lesson.title }}</div>
-          <div v-if="isLessonCompleted(lesson.id)" class="lesson-card-score">
-            {{ Math.round(getSuccessRate(lesson.id) * 100) }}%
+          <div v-if="adaptive.isLessonCompleted(lesson.id)" class="lesson-card-score">
+            {{ Math.round(adaptive.getSuccessRate(lesson.id) * 100) }}%
           </div>
-          <div v-else-if="!isLessonUnlocked(lesson)" class="lesson-card-lock">
+          <div v-else-if="!adaptive.isLessonUnlocked(lesson)" class="lesson-card-lock">
             Niv. {{ lesson.unlockLevel }}
           </div>
         </div>

@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useAdaptive } from '@/composables/useAdaptive'
 
-const { getStats, reset } = useAdaptive()
+const adaptive = useAdaptive()
+const stats = computed(() => adaptive.getStats())
 
 function handleReset() {
   if (confirm('⚠️ Réinitialiser toute ta progression ? Cette action est irréversible.')) {
-    reset()
+    adaptive.reset()
   }
 }
 </script>
@@ -19,15 +21,15 @@ function handleReset() {
     <div class="header-right">
       <div class="stat-pill">
         <span class="stat-label">Niveau</span>
-        <span class="stat-value">{{ getStats().level }}</span>
+        <span class="stat-value">{{ stats.level }}</span>
       </div>
       <div class="stat-pill">
         <span class="stat-label">XP</span>
-        <span class="stat-value">{{ getStats().totalXp }}</span>
+        <span class="stat-value">{{ stats.totalXp }}</span>
       </div>
       <div class="stat-pill">
         <span class="stat-label">Série</span>
-        <span class="stat-value">{{ getStats().streak }} 🔥</span>
+        <span class="stat-value">{{ stats.streak }} 🔥</span>
       </div>
       <button class="btn-icon" title="Réinitialiser la progression" @click="handleReset">↺</button>
     </div>

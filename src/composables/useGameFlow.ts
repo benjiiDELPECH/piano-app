@@ -1,12 +1,19 @@
 // ============================================================
 // PianoFlow — Game Flow Composable
-// Extracts exercise logic + gamification state from App.vue
+// Exercise orchestration + gamification state
+//
+// Architecture:
+//   - Owns view state, exercise flow, combo/XP/feedback
+//   - Communicates piano feedback via typed PianoFeedback events
+//   - Does NOT hold direct refs to UI components
 // ============================================================
 
-import { ref, computed } from 'vue'
-import type { LessonDefinition, Exercise, AttemptResult } from '@/types'
+import { ref, computed, shallowRef } from 'vue'
+import type { LessonDefinition, Exercise, AttemptResult, KeyHighlight } from '@/types'
 import { useAdaptive } from './useAdaptive'
 import { useMusicTheory } from './useMusicTheory'
+
+// ---- Public Types ----
 
 export type ViewState = 'home' | 'exercising' | 'victory'
 
@@ -14,6 +21,14 @@ export interface XpPopup {
   id: number
   amount: number
   bonus: boolean
+}
+
+/** Typed contract for piano visual feedback — NO any refs */
+export interface PianoFeedback {
+  type: 'flash' | 'highlight' | 'clear'
+  note?: string
+  style?: KeyHighlight
+  durationMs?: number
 }
 
 export function useGameFlow() {
@@ -28,11 +43,13 @@ export function useGameFlow() {
   const currentExercise = ref<Exercise | null>(null)
   const exerciseIndex = ref(0)
   const exerciseTotal = ref(0)
-  const sessionCorrect = ref(0)
+  const sessionCorrect = ref(0)   // correct on FIRST attempt
   const sessionTotal = ref(0)
   const collectedNotes = ref<string[]>([])
   const exerciseStartTime = ref(0)
   const isExerciseActive = ref(false)
+  const triedWrong = ref(false)    // did the user make a mistake on this exercise?
+  const hintNote = ref<string>('')  // note pulsing as guidance
 
   // ---- Gamification ----
   const combo = ref(0)
@@ -44,13 +61,18 @@ export function useGameFlow() {
   const leveledUp = ref(false)
   const previousLevel = ref(1)
 
-  // ---- Piano ref (set by App.vue) ----
-  let pianoRef: any = null
-  function setPianoRef(ref: any) { pianoRef = ref }
+  // ---- Piano feedback queue (consumed by App.vue) ----
+  const pianoFeedbacks = shallowRef<PianoFeedback[]>([])
 
-  // ---- Audio ref ----
-  let audioRef: any = null
-  function setAudioRef(ref: any) { audioRef = ref }
+  function emitPianoFeedback(...events: PianoFeedback[]) {
+    pianoFeedbacks.value = [...events]
+  }
+
+  // ---- Audio callback (set by App.vue) ----
+  let audioPlayNote: ((note: string, duration: number) => void) | null = null
+  function setAudioPlayNote(fn: (note: string, duration: number) => void) {
+    audioPlayNote = fn
+  }
 
   // ---- Computed ----
   const sessionScore = computed(() =>
@@ -111,19 +133,22 @@ export function useGameFlow() {
     collectedNotes.value = []
     exerciseStartTime.value = Date.now()
     isExerciseActive.value = true
+    triedWrong.value = false
+    hintNote.value = ''
     lastFeedback.value = ''
     feedbackText.value = ''
 
-    pianoRef?.clearAllHighlights()
+    emitPianoFeedback({ type: 'clear' })
 
     // Auto-play for ear training
     if (currentExercise.value.autoPlay) {
       setTimeout(() => {
-        audioRef?.playNote(currentExercise.value!.autoPlay!, 1.5)
+        audioPlayNote?.(currentExercise.value!.autoPlay!, 1.5)
       }, 500)
     }
   }
 
+  // ---- Note Input ----
   function handleNoteInput(note: string) {
     if (!isExerciseActive.value || !currentExercise.value) return
 
@@ -139,16 +164,42 @@ export function useGameFlow() {
     }
   }
 
+  // ========================================================
+  // SINGLE NOTE — "Scaffold until success"
+  //   Wrong → flash red, hint the correct note, WAIT
+  //   Right → record, advance
+  // ========================================================
   function handleSingleNote(played: string, expected: string) {
     const correct = isSameNote(played, expected, false)
-    processResult(correct, played, expected)
 
-    setTimeout(() => {
-      exerciseIndex.value++
-      nextExercise()
-    }, correct ? 800 : 1500)
+    if (correct) {
+      const firstTry = !triedWrong.value
+      recordCorrect(played, firstTry)
+      hintNote.value = ''
+
+      setTimeout(() => {
+        exerciseIndex.value++
+        nextExercise()
+      }, 800)
+    } else {
+      // Wrong note — show hint, do NOT advance
+      triedWrong.value = true
+      lastFeedback.value = 'wrong'
+      feedbackText.value = `Essaie ${noteFR(expected)} 🎯`
+      hintNote.value = expected
+
+      emitPianoFeedback(
+        { type: 'flash', note: played, style: 'wrong', durationMs: 500 },
+        { type: 'highlight', note: expected, style: 'highlight' },
+      )
+    }
   }
 
+  // ========================================================
+  // SEQUENCE — "Scaffold note by note"
+  //   Wrong → flash red on played, highlight expected, WAIT (don't reset)
+  //   Right → advance within sequence
+  // ========================================================
   function handleSequenceNote(played: string, expectedSequence: string[]) {
     const currentIdx = collectedNotes.value.length
     const expected = expectedSequence[currentIdx]
@@ -158,21 +209,17 @@ export function useGameFlow() {
 
     if (correct) {
       collectedNotes.value.push(played)
-      pianoRef?.flashKey(played, 'correct', 400)
+      hintNote.value = ''
+
+      emitPianoFeedback({ type: 'flash', note: played, style: 'correct', durationMs: 400 })
 
       // Update notation to show progress
-      const notationParts = expectedSequence.map((n, i) => {
-        if (i < collectedNotes.value.length) return '✓'
-        if (i === collectedNotes.value.length) return `▸ ${noteFR(n)}`
-        return noteFR(n)
-      })
-      if (currentExercise.value) {
-        currentExercise.value = { ...currentExercise.value, notation: notationParts.join(' ') }
-      }
+      updateSequenceNotation(expectedSequence)
 
       // Sequence complete?
       if (collectedNotes.value.length === expectedSequence.length) {
-        processResult(true, played)
+        const firstTry = !triedWrong.value
+        recordCorrect(played, firstTry)
 
         setTimeout(() => {
           exerciseIndex.value++
@@ -180,92 +227,127 @@ export function useGameFlow() {
         }, 1000)
       }
     } else {
-      pianoRef?.flashKey(played, 'wrong', 400)
-      pianoRef?.flashKey(expected, 'highlight', 800)
-      processResult(false, played, expected)
+      // Wrong note — hint the correct one, DON'T reset the sequence
+      triedWrong.value = true
+      lastFeedback.value = 'wrong'
+      feedbackText.value = `Essaie ${noteFR(expected)} 🎯`
+      hintNote.value = expected
 
-      // Reset sequence
+      emitPianoFeedback(
+        { type: 'flash', note: played, style: 'wrong', durationMs: 400 },
+        { type: 'highlight', note: expected, style: 'highlight' },
+      )
+
+      // Clear hint after a beat
       setTimeout(() => {
-        collectedNotes.value = []
-        const notationParts = expectedSequence.map((n, i) => {
-          if (i === 0) return `▸ ${noteFR(n)}`
-          return noteFR(n)
-        })
-        if (currentExercise.value) {
-          currentExercise.value = { ...currentExercise.value, notation: notationParts.join(' ') }
+        if (hintNote.value === expected) {
+          lastFeedback.value = ''
+          feedbackText.value = ''
         }
-        lastFeedback.value = ''
-        feedbackText.value = ''
-        pianoRef?.clearAllHighlights()
       }, 1500)
     }
   }
 
-  function handleChordNote(played: string, expectedChord: string[]) {
-    if (!collectedNotes.value.includes(played)) {
-      collectedNotes.value.push(played)
-      pianoRef?.highlightKey(played, 'pressed')
-    }
-
-    if (collectedNotes.value.length >= expectedChord.length) {
-      const allCorrect = expectedChord.every(expected =>
-        collectedNotes.value.some(p => isSameNote(p, expected, false))
-      )
-
-      if (allCorrect) {
-        expectedChord.forEach(n => pianoRef?.flashKey(n, 'correct', 600))
-      } else {
-        collectedNotes.value.forEach(n => pianoRef?.flashKey(n, 'wrong', 600))
-        setTimeout(() => {
-          expectedChord.forEach(n => pianoRef?.flashKey(n, 'highlight', 1000))
-        }, 400)
-      }
-
-      processResult(allCorrect, played)
-
-      setTimeout(() => {
-        exerciseIndex.value++
-        pianoRef?.clearAllHighlights()
-        nextExercise()
-      }, allCorrect ? 1000 : 1800)
+  function updateSequenceNotation(expectedSequence: string[]) {
+    const notationParts = expectedSequence.map((n, i) => {
+      if (i < collectedNotes.value.length) return '✓'
+      if (i === collectedNotes.value.length) return `▸ ${noteFR(n)}`
+      return noteFR(n)
+    })
+    if (currentExercise.value) {
+      currentExercise.value = { ...currentExercise.value, notation: notationParts.join(' ') }
     }
   }
 
-  function processResult(correct: boolean, played: string, expected?: string) {
+  // ========================================================
+  // CHORD — "Scaffold until all correct"
+  //   Each note: if it belongs to the chord, keep it highlighted
+  //   If not, flash red + hint which notes are missing, reset collected
+  // ========================================================
+  function handleChordNote(played: string, expectedChord: string[]) {
+    // Check if this note is part of the chord
+    const isPartOfChord = expectedChord.some(e => isSameNote(played, e, false))
+
+    if (isPartOfChord && !collectedNotes.value.some(c => isSameNote(c, played, false))) {
+      collectedNotes.value.push(played)
+      emitPianoFeedback({ type: 'highlight', note: played, style: 'correct' })
+
+      // Chord complete?
+      if (collectedNotes.value.length >= expectedChord.length) {
+        const firstTry = !triedWrong.value
+        recordCorrect(played, firstTry)
+        hintNote.value = ''
+
+        emitPianoFeedback(
+          ...expectedChord.map(n => ({ type: 'flash' as const, note: n, style: 'correct' as const, durationMs: 600 }))
+        )
+
+        setTimeout(() => {
+          exerciseIndex.value++
+          nextExercise()
+        }, 1000)
+      }
+    } else if (!isPartOfChord) {
+      // Wrong note — hint the missing notes
+      triedWrong.value = true
+      lastFeedback.value = 'wrong'
+
+      const missing = expectedChord.filter(e =>
+        !collectedNotes.value.some(c => isSameNote(c, e, false))
+      )
+      feedbackText.value = `Il manque ${missing.map(noteFR).join(', ')} 🎯`
+
+      emitPianoFeedback(
+        { type: 'flash', note: played, style: 'wrong', durationMs: 500 },
+        ...missing.map(n => ({ type: 'highlight' as const, note: n, style: 'highlight' as const })),
+      )
+
+      // Clear wrong note from collected, keep the good ones
+      // (the played note wasn't added, so nothing to remove)
+
+      setTimeout(() => {
+        if (lastFeedback.value === 'wrong') {
+          lastFeedback.value = ''
+          feedbackText.value = ''
+        }
+      }, 1500)
+    }
+    // If they replay a note already collected, ignore silently
+  }
+
+  // ========================================================
+  // Result recording — only on SUCCESS
+  // ========================================================
+  function recordCorrect(played: string, firstTry: boolean) {
     const responseTime = Date.now() - exerciseStartTime.value
-    const result: AttemptResult = adaptive.recordAttempt(currentLesson.value!.id, correct, responseTime)
+    // Always record as "correct" in adaptive engine (they eventually got it right)
+    const result: AttemptResult = adaptive.recordAttempt(
+      currentLesson.value!.id,
+      firstTry, // only counts as "correct" for adaptive if first try
+      responseTime,
+    )
 
     sessionTotal.value++
-
-    if (correct) {
+    if (firstTry) {
       sessionCorrect.value++
       combo.value++
       if (combo.value > bestCombo.value) bestCombo.value = combo.value
 
-      lastFeedback.value = 'correct'
-      feedbackText.value = getCorrectMessage()
-
-      pianoRef?.flashKey(played, 'correct', 600)
-
       // XP popup
       spawnXpPopup(result.xpGained, combo.value > 1)
-
-      // Level up detection
-      if (result.level > previousLevel.value) {
-        leveledUp.value = true
-      }
     } else {
-      combo.value = 0
-      lastFeedback.value = 'wrong'
+      // Combo save: don't reset combo if they eventually got it right
+      // But no XP bonus for this exercise
+    }
 
-      let msg = 'Pas tout à fait...'
-      if (expected) msg += ` C'était ${noteFR(expected)}`
-      feedbackText.value = msg
+    lastFeedback.value = 'correct'
+    feedbackText.value = firstTry ? getCorrectMessage() : 'C\'est ça ! 👍'
 
-      pianoRef?.flashKey(played, 'wrong', 600)
-      if (expected) {
-        setTimeout(() => pianoRef?.flashKey(expected, 'highlight', 800), 400)
-      }
+    emitPianoFeedback({ type: 'flash', note: played, style: 'correct', durationMs: 600 })
+
+    // Level up detection
+    if (result.level > previousLevel.value) {
+      leveledUp.value = true
     }
   }
 
@@ -288,9 +370,11 @@ export function useGameFlow() {
 
   function skipExercise() {
     if (!isExerciseActive.value) return
+    // Skip = count as attempted but wrong
     adaptive.recordAttempt(currentLesson.value!.id, false, 0)
     sessionTotal.value++
     combo.value = 0
+    hintNote.value = ''
     exerciseIndex.value++
     nextExercise()
   }
@@ -298,7 +382,9 @@ export function useGameFlow() {
   function finishLesson() {
     isExerciseActive.value = false
     currentExercise.value = null
-    pianoRef?.clearAllHighlights()
+    hintNote.value = ''
+
+    emitPianoFeedback({ type: 'clear' })
 
     const score = sessionScore.value
     adaptive.completeLesson(currentLesson.value!.id, score)
@@ -312,7 +398,9 @@ export function useGameFlow() {
 
   function goHome() {
     viewState.value = 'home'
+    hintNote.value = ''
     selectRecommendedLesson()
+    emitPianoFeedback({ type: 'clear' })
   }
 
   function startNextLesson() {
@@ -321,7 +409,7 @@ export function useGameFlow() {
   }
 
   return {
-    // State
+    // State (readonly from outside)
     viewState,
     currentLesson,
     currentExercise,
@@ -339,17 +427,17 @@ export function useGameFlow() {
     stars,
     progressDots,
     leveledUp,
+    hintNote,
+    pianoFeedbacks,
 
     // Actions
     selectLesson,
     selectRecommendedLesson,
     startLesson,
-    nextExercise,
     handleNoteInput,
     skipExercise,
     goHome,
     startNextLesson,
-    setPianoRef,
-    setAudioRef,
+    setAudioPlayNote,
   }
 }

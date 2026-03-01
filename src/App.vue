@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useAudio } from '@/composables/useAudio'
 import { useAdaptive } from '@/composables/useAdaptive'
 import { useLessons } from '@/composables/useLessons'
@@ -29,18 +29,35 @@ const startOctave = ref(3)
 const showLabels = ref(true)
 const volume = ref(70)
 
+// Cached stats for template (avoid re-creating objects each render)
+const stats = computed(() => adaptive.getStats())
+
 // ---- Init ----
 onMounted(() => {
   adaptive.load()
   audio.init()
   game.selectRecommendedLesson()
-  // Piano is always mounted, wire it immediately
-  if (pianoRef.value) game.setPianoRef(pianoRef.value)
 })
 
-// Wire piano & audio refs into the game flow composable
-watch(pianoRef, (ref) => { if (ref) game.setPianoRef(ref) })
-game.setAudioRef(audio)
+// Wire audio into game flow (typed callback, not raw ref)
+game.setAudioPlayNote((note, duration) => audio.playNote(note, duration))
+
+// ---- Piano feedback bridge ----
+// useGameFlow emits typed PianoFeedback events → App.vue applies them to the piano ref
+watch(() => game.pianoFeedbacks.value, (events) => {
+  const piano = pianoRef.value
+  if (!piano) return
+
+  for (const ev of events) {
+    if (ev.type === 'clear') {
+      piano.clearAllHighlights()
+    } else if (ev.type === 'flash' && ev.note && ev.style && ev.durationMs) {
+      piano.flashKey(ev.note, ev.style, ev.durationMs)
+    } else if (ev.type === 'highlight' && ev.note && ev.style) {
+      piano.highlightKey(ev.note, ev.style)
+    }
+  }
+})
 
 // ---- Piano controls ----
 function handleOctaveChange(e: Event) {
@@ -53,11 +70,18 @@ function handleVolumeChange(e: Event) {
   audio.setVolume(v / 100)
 }
 
-// ---- Feedback class ----
-const feedbackClass = ref('')
-watch(() => game.lastFeedback.value, (v) => {
-  feedbackClass.value = v === 'correct' ? 'correct' : v === 'wrong' ? 'wrong' : ''
-})
+// Feedback class derived from game state
+const feedbackClass = computed(() =>
+  game.lastFeedback.value === 'correct' ? 'correct'
+    : game.lastFeedback.value === 'wrong' ? 'wrong'
+    : ''
+)
+
+const animClass = computed(() =>
+  game.lastFeedback.value === 'correct' ? 'anim-pop'
+    : game.lastFeedback.value === 'wrong' ? 'anim-shake'
+    : ''
+)
 </script>
 
 <template>
@@ -96,7 +120,7 @@ watch(() => game.lastFeedback.value, (v) => {
             :total="game.exerciseTotal.value"
             :feedback-text="game.feedbackText.value"
             :feedback-class="feedbackClass"
-            :anim-class="game.lastFeedback.value === 'correct' ? 'anim-pop' : game.lastFeedback.value === 'wrong' ? 'anim-shake' : ''"
+            :anim-class="animClass"
           />
 
           <!-- Skip button -->
@@ -117,9 +141,9 @@ watch(() => game.lastFeedback.value, (v) => {
           :total="game.sessionTotal.value"
           :stars="game.stars.value"
           :leveled-up="game.leveledUp.value"
-          :xp-earned="adaptive.getStats().totalXp"
-          :new-level="adaptive.getStats().level"
-          :streak="adaptive.getStats().streak"
+          :xp-earned="stats.totalXp"
+          :new-level="stats.level"
+          :streak="stats.streak"
           @next="game.startNextLesson()"
           @home="game.goHome()"
         />

@@ -1,14 +1,9 @@
 <script setup lang="ts">
 import { TransitionGroup } from 'vue'
-
-export interface XpItem {
-  id: number
-  amount: number
-  bonus: boolean
-}
+import type { XpPopup } from '@/composables/useGameFlow'
 
 defineProps<{
-  popups: XpItem[]
+  popups: XpPopup[]
 }>()
 </script>
 
