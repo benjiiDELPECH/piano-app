@@ -115,11 +115,32 @@ function keyClasses(note: string): string[] {
   return set ? [...set] : []
 }
 
+// Reverse map: note (e.g. 'C4', 'C#4') → event.code (e.g. 'KeyA', 'KeyW')
+function noteToCode(note: string): string | null {
+  const parsed = parseNote(note)
+  if (!parsed) return null
+  const noteName = parsed.note
+  const octave = parsed.octave
+  for (const [code, mapping] of Object.entries(CODE_MAP)) {
+    const isSecondOctave = mapping.endsWith('+')
+    const mappedNote = isSecondOctave ? mapping.slice(0, -1) : mapping
+    const mappedOctave = isSecondOctave ? props.startOctave + 1 : props.startOctave
+    if (mappedNote === noteName && mappedOctave === octave) return code
+  }
+  return null
+}
+
 function getLabel(note: string): string {
   if (!props.showLabels) return ''
   const parsed = parseNote(note)
   if (!parsed) return ''
   return NOTE_NAMES_FR[parsed.note] ?? ''
+}
+
+function getKbdLabel(note: string): string {
+  const code = noteToCode(note)
+  if (!code) return ''
+  return detectedKeyLabels.value[code] ?? code.replace('Key', '')
 }
 
 function blackKeyLeft(whiteIdx: number): string {
@@ -294,6 +315,7 @@ defineExpose({
           @touchstart.prevent="triggerNote(wk.note)"
           @touchend="releaseNote(wk.note)"
         >
+          <span v-if="getKbdLabel(wk.note)" class="key-kbd">{{ getKbdLabel(wk.note) }}</span>
           <span class="key-label">{{ getLabel(wk.note) }}</span>
         </div>
 
@@ -310,6 +332,7 @@ defineExpose({
           @touchstart.prevent="triggerNote(bk.note)"
           @touchend="releaseNote(bk.note)"
         >
+          <span v-if="getKbdLabel(bk.note)" class="key-kbd key-kbd-black">{{ getKbdLabel(bk.note) }}</span>
           <span class="key-label">{{ getLabel(bk.note) }}</span>
         </div>
       </div>
@@ -401,6 +424,30 @@ defineExpose({
   font-weight: 600;
   color: #666;
   pointer-events: none;
+}
+
+.key-kbd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: system-ui, sans-serif;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: #888;
+  pointer-events: none;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.key-kbd-black {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #bbb;
 }
 
 /* Black keys */
