@@ -170,9 +170,10 @@ export function useGameFlow() {
   //   Right → record, advance
   // ========================================================
   function handleSingleNote(played: string, expected: string) {
-    const correct = isSameNote(played, expected, false)
+    const correct = isSameNote(played, expected, true)
 
     if (correct) {
+      isExerciseActive.value = false // ← guard: ignore further input during transition
       const firstTry = !triedWrong.value
       recordCorrect(played, firstTry)
       hintNote.value = ''
@@ -205,7 +206,7 @@ export function useGameFlow() {
     const expected = expectedSequence[currentIdx]
     if (!expected) return
 
-    const correct = isSameNote(played, expected, false)
+    const correct = isSameNote(played, expected, true)
 
     if (correct) {
       collectedNotes.value.push(played)
@@ -218,6 +219,7 @@ export function useGameFlow() {
 
       // Sequence complete?
       if (collectedNotes.value.length === expectedSequence.length) {
+        isExerciseActive.value = false // ← guard: ignore further input
         const firstTry = !triedWrong.value
         recordCorrect(played, firstTry)
 
@@ -266,14 +268,15 @@ export function useGameFlow() {
   // ========================================================
   function handleChordNote(played: string, expectedChord: string[]) {
     // Check if this note is part of the chord
-    const isPartOfChord = expectedChord.some(e => isSameNote(played, e, false))
+    const isPartOfChord = expectedChord.some(e => isSameNote(played, e, true))
 
-    if (isPartOfChord && !collectedNotes.value.some(c => isSameNote(c, played, false))) {
+    if (isPartOfChord && !collectedNotes.value.some(c => isSameNote(c, played, true))) {
       collectedNotes.value.push(played)
       emitPianoFeedback({ type: 'highlight', note: played, style: 'correct' })
 
       // Chord complete?
       if (collectedNotes.value.length >= expectedChord.length) {
+        isExerciseActive.value = false // ← guard: ignore further input
         const firstTry = !triedWrong.value
         recordCorrect(played, firstTry)
         hintNote.value = ''
@@ -293,7 +296,7 @@ export function useGameFlow() {
       lastFeedback.value = 'wrong'
 
       const missing = expectedChord.filter(e =>
-        !collectedNotes.value.some(c => isSameNote(c, e, false))
+        !collectedNotes.value.some(c => isSameNote(c, e, true))
       )
       feedbackText.value = `Il manque ${missing.map(noteFR).join(', ')} 🎯`
 
