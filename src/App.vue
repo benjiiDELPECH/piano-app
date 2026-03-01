@@ -34,11 +34,13 @@ onMounted(() => {
   adaptive.load()
   audio.init()
   game.selectRecommendedLesson()
+  // Piano is always mounted, wire it immediately
+  if (pianoRef.value) game.setPianoRef(pianoRef.value)
 })
 
 // Wire piano & audio refs into the game flow composable
 watch(pianoRef, (ref) => { if (ref) game.setPianoRef(ref) })
-watch(() => audio, () => game.setAudioRef(audio), { immediate: true })
+game.setAudioRef(audio)
 
 // ---- Piano controls ----
 function handleOctaveChange(e: Event) {
@@ -67,6 +69,7 @@ watch(() => game.lastFeedback.value, (v) => {
       <Transition name="fade" mode="out-in">
         <HomeScreen
           v-if="game.viewState.value === 'home'"
+          key="home"
           :recommended-lesson="game.currentLesson.value"
           :all-lessons="lessons.getAllLessons()"
           @start="game.startLesson($event)"
@@ -74,7 +77,7 @@ watch(() => game.lastFeedback.value, (v) => {
         />
 
         <!-- ========== EXERCISING ========== -->
-        <div v-else-if="game.viewState.value === 'exercising'" class="exercise-mode">
+        <div v-else-if="game.viewState.value === 'exercising'" key="exercising" class="exercise-mode">
           <!-- Top bar: progress + combo -->
           <div class="exercise-topbar">
             <button class="btn-back" @click="game.goHome()">← Quitter</button>
@@ -99,34 +102,6 @@ watch(() => game.lastFeedback.value, (v) => {
           <!-- Skip button -->
           <button class="btn-skip" @click="game.skipExercise()">Passer →</button>
 
-          <!-- Piano controls -->
-          <div class="piano-controls">
-            <label>
-              Octave:
-              <select :value="startOctave" @change="handleOctaveChange">
-                <option value="2">2</option>
-                <option value="3">3</option>
-                <option value="4">4</option>
-                <option value="5">5</option>
-              </select>
-            </label>
-            <label>
-              Volume:
-              <input type="range" min="0" max="100" :value="volume" @input="handleVolumeChange" />
-            </label>
-            <label>
-              <input type="checkbox" v-model="showLabels" /> Notes
-            </label>
-          </div>
-
-          <!-- Piano -->
-          <PianoKeyboard
-            ref="pianoRef"
-            :start-octave="startOctave"
-            :show-labels="showLabels"
-            @note-play="game.handleNoteInput($event)"
-          />
-
           <!-- XP Popups -->
           <XpPopup :popups="game.xpPopups.value" />
 
@@ -137,6 +112,7 @@ watch(() => game.lastFeedback.value, (v) => {
         <!-- ========== VICTORY ========== -->
         <VictoryScreen
           v-else
+          key="victory"
           :correct="game.sessionCorrect.value"
           :total="game.sessionTotal.value"
           :stars="game.stars.value"
@@ -148,6 +124,35 @@ watch(() => game.lastFeedback.value, (v) => {
           @home="game.goHome()"
         />
       </Transition>
+
+      <!-- ========== PIANO (always mounted) ========== -->
+      <div v-show="game.viewState.value !== 'victory'" class="piano-dock">
+        <div class="piano-controls">
+          <label>
+            Octave:
+            <select :value="startOctave" @change="handleOctaveChange">
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+            </select>
+          </label>
+          <label>
+            Volume:
+            <input type="range" min="0" max="100" :value="volume" @input="handleVolumeChange" />
+          </label>
+          <label>
+            <input type="checkbox" v-model="showLabels" /> Notes
+          </label>
+        </div>
+
+        <PianoKeyboard
+          ref="pianoRef"
+          :start-octave="startOctave"
+          :show-labels="showLabels"
+          @note-play="game.handleNoteInput($event)"
+        />
+      </div>
     </main>
   </div>
 </template>
@@ -222,6 +227,17 @@ watch(() => game.lastFeedback.value, (v) => {
 .btn-skip:hover {
   background: var(--bg-card-hover);
   color: var(--text);
+}
+
+/* ---- Piano dock (always mounted) ---- */
+.piano-dock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 20px 32px;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
 }
 
 /* Piano controls */
